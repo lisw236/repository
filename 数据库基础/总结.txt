@@ -1,0 +1,73 @@
+                    变量
+默认检索路径
+secure_file_priv: /var/lib/mysql-files/
+
+密码长度&策略
+validate_password_length              |   8    |
+validate_password_policy              | MEDIUM |
+
+binlog日志格式
+binlog_format
+
+#################################################################
+##########################################
+                    文件
+
+修改默认检索路径
+secure_file_priv=文件路径
+
+validate_password_length=              
+validate_password_policy=              
+
+绕过密码
+skip-grant-tables
+
+binlog日志
+server=
+log-bin
+max_binlog_size=
+
+binlog日志格式
+binlog_format="statement(报表模式)  row(行模式) mixed(混合模式)"
+
+#################################################################
+#############################################
+                    临时
+set global valideat_password_policy=0;   #修改为0模式
+set global validate_password_length=6;   #修改长度为6
+
+##################################################################
+################
+                    记忆
+""不等于空
+
+- usage: #无权限,只能连接
+
+between 数字 and 数字
+distinct  字段名      去重显示      select distinct 字段名 from 库.表
+
+with grant option;           #授权权限,可选项
+
+密码字段
+authentication_string=password(“新密码”)
+
+ 2.正则匹配
+　　-- regexp
+　　-- where 字段名 regexp “正则表达式”    #没有等于号
+
+2.查询结果排序
+      -- 通常是数值类型字段
+　　  -- sql查询 order by 字段名 [ asc(默认)|desc ] ;  #字段名为排序参考
+         -- asc 升序排序
+         -- desc 降序排序(默认)
+
+4.清除日志
+删除指定编号之前的日志:
+-- purge master logs to "日志名";
+删除所有日志,重新建日志:
+-- reset master;
+
+
+innobackupex
+ --no-timestamp
+
