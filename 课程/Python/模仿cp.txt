@@ -1,0 +1,10 @@
+src_name = '/bin/ls'
+dst_name = '/tmp/list'
+
+with open(src_name, 'rb') as src_fobj:
+     with open(dst_name, 'wb') as dst_fobj:
+         while 1:
+             data = src_fobj.read(4096)
+             if not data :                    #若为空,则not空为真,则退出循环,若不是空,则不执行if语句;
+                 break                     
+             dst_fobj.write(data)  	         

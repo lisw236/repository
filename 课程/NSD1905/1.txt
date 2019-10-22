@@ -1,0 +1,36 @@
+破解密码
+1.开机之后按"e"键
+2.找到linux16的开头的行
+在行尾添加 rd.break console=tty0 
+3.按 Ctrl+x 进入救援模式
+4.重新挂在根目录 
+mount -o remount,rw /sysroot
+5.切换至根目录
+chroot /sysroot
+6.修改root密码
+echo 123456 |passwd --stdin root
+7.关闭selinux
+vim /etc/selinux/config
+SELINUX=disabled
+:wq
+8.重启测试
+exit
+reboot
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

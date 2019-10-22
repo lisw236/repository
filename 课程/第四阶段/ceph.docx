@@ -1,0 +1,80 @@
+tbj控制32mon操作:
+[root@ecs-tbj]#ssh 192.168.1.32 "mkdir /root/ceph-cluster"
+[root@ecs-tbj]#ssh 192.168.1.32 "cd /root/ceph-cluster && ceph-deploy new  ecs-mon-0001 ecs-mon-0002 ecs-mon-0003"
+[root@ecs-tbj]#ssh 192.168.1.32 "ls /root/ceph-cluster"
+ceph-deploy-ceph.log
+
+
+[root@ecs-tbj]#ansible ceph-node  -m shell -a "
+parted /dev/vdb mklabel gpt
+parted /dev/vdb mkpart primary 1 50%
+parted /dev/vdb mkpart primary 50% 100%"
+
+[root@ecs-tbj]# ansible ceph-node  -m shell -a "
+> chown ceph:ceph /dev/vdb1
+> chown ceph:ceph /dev/vdb2"
+
+
+[root@ecs-tbj]# ansible ceph-node  -m copy -a "
+> src=/etc/udev/rules.d/70-vdb.rules 
+> dest=/etc/udev/rules.d/70-vdb.rules"
+
+在deploy节点上操作
+]#ssh root@192.168.1.32
+]#for i in ecs-node-000{1..3}
+> do
+> ceph-deploy disk zap ${i}:vdc ${i}:vdd
+> done
+
+]# for i in ecs-node-000{1..3}
+> do 
+> ceph-deploy osd create ${i}:vdc:/dev/vdb1 ${i}:vdd:/dev/vdb2
+> done
+
+
+
+时间不同步问题:
+]# vim /etc/ceph/ceph.conf
+//添加一下内容
+[mon]
+mon clock drift allowed = 1          //将时间差最大允许1秒
+
+
+
+文件系统共享
+
+1.创建存储池（文件系统由inode和block组成）
+[root@ecs-mon-0001 ~]# ceph osd pool create cephfs_data 128
+[root@ecs-mon-0001 ~]# ceph osd pool create cephfs_metadata 128
+2.创建文件系统
+[root@ecs-mon-0001 ~]# ceph fs new webfs cephfs_metdata cephfs_data 
+[root@ecs-mon-0001 ~]# ceph osd lspools
+0 rbd,1 cephfs_data,2 cephfs_metdata
+
+client挂载
+
+1.mount写入开机读取的文件
+[root@client ~]# mount -t ceph 192.168.4.11:6789:/  /usr/local/nginx/html/ \
+-o name=admin,secret=AQAp2Yld1eSdBhAAC3PfubAbuARXiVT0HfPxEg==
+
+[root@web1 ~]# echo 'mount -t ceph 192.168.2.41:6789:/ /usr/local/nginx/html/ \
+-o name=admin,secret=AQA0KtlcRGz5JxAA/K0AD/uNuLI1RqPsNGC7zg==' >> /etc/rc.local 
+
+[root@web1 ~]# chmod +x /etc/rc.local
+
+2.fstab永久
+提示: 如果希望使用fstab实现永久挂载，客户端需要额外安装libcephfs1软件包。
+[root@client ~]# yum -y install libcephfs1
+[root@web1 ~]# vim /etc/fstab
+… …
+192.168.4.11:/ /usr/local/nginx/html/    ceph   defaults,_netdev,name=admin,secret=AQCVcu9cWXkgKhAAWSa7qCFnFVbNCTB2DwGIOA== 0 0
+
+//注意:文件系统类型为ceph
+//192.168.4.11为MON节点的IP（不是MDS节点）
+//admin是用户名,secret是密钥
+//密钥可以在/etc/ceph/ceph.client.admin.keyring中找到
+
+查看
+[root@ecs-mon-0001 ~]# cat /etc/ceph/ceph.client.admin.keyring 
+[client.admin]            //全称,简称:admin
+	key = AQAp2Yld1eSdBhAAC3PfubAbuARXiVT0HfPxEg==

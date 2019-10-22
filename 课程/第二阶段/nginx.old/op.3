@@ -1,0 +1,95 @@
+                                        
+                                         Nginx反向代理
+
+一.基本
+  1.Web1服务器、Web2服务器
+          安装httpd,建立页面
+
+  2.nginx代理端
+        修改配置文件:
+         http: {
+
+                    (集群名字任意)
+        upstream webserver {
+                  server 192.168.2.100 weight=1 max_fails=1 fail_timeout=30;
+                  server 192.168.2.200 weight=2 max_fails=2 fail_timeout=30;
+                  server 192.168.2.101 down;
+
+        location / {
+                 proxy_pass http://webserver;    #通过proxy_pass将用户的请求转发给webserver集群
+                                优先级最大                     #轮询效果 . 
+
+	  	  #weight  设置服务器权重值，默认值为1
+		  #max_fails  设置最大失败次数
+		  #fail_timeout  设置失败超时时间，单位为秒
+		  #down  标记服务器已关机，不参与集群调度
+          
+二.设置相同客户端访问相同Web服务器:  ip_hash
+	
+	#通过ip_hash设置调度规则为：相同客户端访问相同服务器
+	upstream webserver {
+                 ip_hash;
+                server 192.168.2.100 weight=1 max_fails=2 fail_timeout=10;
+                server 192.168.2.200 weight=2 max_fails=2 fail_timeout=10;
+
+三.Nginx的TCP/UDP调度器
+       1.部署支持4层TCP/UDP代理的Nginx服务器
+                参照安装nginx步骤
+            ./configure   \
+		> --with-http_ssl_module                 //开启SSL加密功能
+		> --with-stream                          //开启4层反向代理功能
+
+       2.修改/usr/local/nginx/conf/nginx.conf配置文件
+
+          #在http上面
+        stream {
+            	upstream backend {
+              		 server 192.168.2.100:22;            //后端SSH服务器的IP和端口
+               		 server 192.168.2.200:22;            //端口决定什么服务(ssh mail等)
+			}
+
+                   server {
+               		  listen 12345;               //Nginx监听的端口(22口ssh正在用,所以自创)
+              		   proxy_connect_timeout 1s;   //连接的超时时间，可选配置
+             		   proxy_timeout 3s;
+               		   proxy_pass backend;            //12345-->转到 backend
+             		}		 
+	   }
+ 
+	  http {
+
+         3.验证
+	        结果:    
+	             ssh 192.168.4.5 -p 12345   
+
+	               22端口      ----->   ssh nginx服务器      
+	               12345端口   ----->   ssh web
+
+四.自定义报错文件
+                        #有跳转不好使
+ 		      charset utf-8;                    //仅需要中文时需要改选项，可选项
+		error_page   404  /404.html;            //自定义错误页面
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

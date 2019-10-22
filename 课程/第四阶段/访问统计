@@ -1,0 +1,17 @@
+
+
+
+访问排序
+[root@ecs-tbj ~]# for i in {1..100};do  
+> curl -si http://192.168.1.9 | grep cluster; done |  sort | uniq -c
+     17 cluster_id: ecs-web-0001
+     15 cluster_id: ecs-web-0002
+     17 cluster_id: ecs-web-0003
+     25 cluster_id: ecs-web-0004
+     12 cluster_id: ecs-web-0005
+     14 cluster_id: ecs-web-0006
+
+
+
+
+

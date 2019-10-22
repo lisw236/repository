@@ -1,0 +1,154 @@
+
+
+0.hostnamectl set-hostname proxy
+
+ f12 --->看网站用什么做的
+
+make  ----->代码转为二进制
+
+软件启动会继承启动者身份的权限
+
+
+requires 需要
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+ #nginx主配置文件:
+    	/usr/local/nginx/conf/nginx.conf
+
+ #pcre-devdl 用来支持正则
+ #openssl-devdl 用来加密/解密
+
+一.安装nginx
+    步骤:
+         1.安装依赖包   gcc  pcre-devel  openssl-devel
+         2.解压  lnmp_soft.tar.gz ---> nginx-1.10.3.tar.gz ---> nginx-1.10.3
+         3.源码编译
+                ① 创建nginx用户 (-s /sbin/nologin)
+		② 进入nginx-1.10.3
+		③ ./configure   \
+			> --prefix=/usr/local/nginx   \            //指定安装路径
+			> --user=nginx   \                        //指定用户
+			> --group=nginx  \                        //指定组
+			> --with-http_ssl_module                  //开启SSL加密功能
+                             #with   :开启功能
+                             #without:关闭功能
+                                                                                                                 
+		④ make && make install    //编译并安装
+     文件内容:        
+      /usr/local/nginx:
+              conf   html   logs   sbin
+                  文件     网页     日志    主程序
+     命令:
+     sbin/nginx 命令:	
+     	 ~]# /usr/local/nginx/sbin/nginx                    //启动服务
+	 ~]# /usr/local/nginx/sbin/nginx -s stop            //关闭服务
+       ~]# /usr/local/nginx/sbin/nginx -s reload        //重新加载配置文件
+	 ~]# /usr/local/nginx/sbin/nginx -V                //查看软件信息
+	 ~]# ln -s /usr/local/nginx/sbin/nginx /sbin/        //方便后期使用
+
+     netstat        #查看系统中启动的端口信息
+     	 选项: 
+	    -a显示所有端口的信息
+	    -n以数字格式显示端口号
+	    -t显示TCP连接的端口
+	    -u显示UDP连接的端口
+	    -l显示服务正在监听的端口信息，如httpd启动后，会一直监听80端口
+	    -p显示监听端口的服务名称是什么（也就是程序名称）
+
+二.升级nginx服务器
+                 #  每次升级只需升级sbin
+    步骤:
+        1.编译新版本
+             make后会新增一个objs 里面有新的nginx
+             make后不能make install 因为后者会更新logs等
+        2.备份老的nginx主程序(改个名) 
+             mv nginx --> nginx.old
+        3.新主替换老主 
+             cp objs/nginx --> 主程序目录下
+        4.升级    
+             make upgrade 或者 killall nginx      #杀死进程后再重启
+             /usr/local/nginx/sbin/nginx -t
+             /usr/local/nginx/sbin/nginx –v   #查看新版本
+     -------------------------------------------
+    tar
+          -v:显示压缩包详细信息
+          ----------------------------
+    curl http://192.168.4.5
+      ------------------------------------------------------------------------------------------------------------------------------------
+一.设置用户认证
+        1.修改配置文件(添加加密设置)
+        /usr/local/nginx/conf/nginx.conf
+          listen 80              
+          server_name  localhost;
+     添加--> auth_basic "Input Password:";                        //认证提示符信息
+     添加--> auth_basic_user_file "/usr/local/nginx/pass";        //认证的密码文件
+            #默认没有pass文件,但无需创建
+        2.生成密码文件，创建用户及密码
+               ① 下载httpd-tools --> 提供命令: htpasswd
+               ② 创建密码文件,用户
+                htpasswd -c /usr/local/nginx/pass  名字         //-c:新建,新建密码文件和用户     
+                htpasswd  /usr/local/nginx/pass   jerry      //追加用户，不使用-c选项
+        3.重新加载配置
+          /usr/local/nginx/sbin/nginx -s reload              //重新加载配置文件
+
+             #请先确保nginx是启动状态，否则运行该命令会报错,报错信息如下：
+	    #[error] open() "/usr/local/nginx/logs/nginx.pid" failed (2: No such
+           file or directory)
+      --------------------------------------------------------------------------------------------------------------------------------------
+                                               虚拟主机
+一.配置基于域名的虚拟主机
+       1.修改配置文件(同上)
+            建立www.b.com的配置
+            (已做好,大概在89行)
+       2.重新加载配置
+          /usr/local/nginx/sbin/nginx -s reload   
+       3.本地域名解析文件 /etc/hosts
+         192.168.4.5     www.a.com    www.b.com
+二.基于端口
+三.基于ip
+
+          #都一样的情况下,由上及下
+      ----------------------------------------------------------------------------------------------------------------------------------------
+                                   SSL虚拟主机
+
+
+一.生成私钥与证书
+	 cd /usr/local/nginx/conf                            //放到conf中
+
+       openssl genrsa > cert.key                            //生成私钥
+	 openssl req -new -x509 -key cert.key > cert.pem      //生成证书
+                               固定格式      私钥文件名
+二.配置文件内容:
+	  server {
+     	       listen       443 ssl;
+     	       server_name          www.c.com;
+    	       ssl_certificate      cert.pem;         #这里是证书文件
+   	       ssl_certificate_key  cert.key;         #这里是私钥文件
+
+		 ssl_session_cache    shared:SSL:1m;
+    	       ssl_session_timeout  5m;               #这里是等待时间
+
+             ssl_ciphers  HIGH:!aNULL:!MD5;
+             ssl_prefer_server_ciphers  on;
+三.重启
+       
+    验证必须用:https
+   
+md5sum
+
+w
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+

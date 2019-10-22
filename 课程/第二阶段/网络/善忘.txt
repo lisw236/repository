@@ -1,0 +1,13 @@
+查看	
+<Huawei> display  mac-address                  //查看mac地址表
+<Huawei> display  ip  routing-table            //查看路由表
+<Huawei> display  ip  interface  brief         //专门查看接口IP信息
+
+[Huawei] vlan batch  10 to 20      //创建VLAN10到vlan20
+
+[Huawei]ip route-static 192.168.3.0 24 192.168.2.2
+        
+
+
+
+

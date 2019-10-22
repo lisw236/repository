@@ -1,0 +1,714 @@
+﻿================Haproxy+keepalived安装部署===========================
+#首先创建2台haproxy虚拟主机（略） 创建5台web服务器
+#IP规划：192.168.0.10（主）--192.168.0.11（备）VIP:192.168.0.249
+#webIP:192.168.0.15 16 18 21动态  25静态
+=====================================================================
+华为云设置VIP
+网络----虚拟私有云VPC----点击名称（vpc-yc）----名称（subnet-f0ce）----虚拟IP----申请虚拟IP地址----手动分配----192.168.0.249
+绑定服务器----Haproxy-0001----再次绑定Harpoxy-0002
+=====================================================================
+
+#关闭ssh指纹
+# vim /etc/ansible/ansible.cfg
+inventory      = /etc/ansible/hosts
+host_key_checking = False
+
+#修改ssh
+vim /etc/ssh/ssh_conf
+ StrictHostKeyChecking no
+#修改hosts
+192.168.0.10 haproxy-0001
+192.168.0.11 haproxy-0002
+192.168.0.15 web-0001
+192.168.0.16 web-0002
+192.168.0.18 web-0003
+192.168.0.21 web-0004
+192.168.0.25 web-0005
+
+
+#创建自定义ansible
+[root@jump ~]# mkdir project
+#cd project
+vim ansible.cfg
+[defaults]
+inventory = haproxy
+host_key_checking = False
+
+
+#创建ansible主机的haproxy文件
+vim haproxy
+[proxy1]
+haproxy-0001
+haproxy-0002
+[web1]
+web-0001
+web-0002
+web-0003
+web-0004
+web-0005
+
+#测试
+[root@jump project]# ansible all -m ping     
+
+#制作源码Nginx源码包(最好在测试环境测好在放到云)
+yum install rpm-build -y
+rpmbuild -ba nginx.spec
+ls /root/rpmbuild 
+#上传nginx-1.12.2.tar.gz
+#安装依赖包
+yum install pcre-devel openssl-devel -y
+#编译安装
+useradd -s /sbin/nologin nginx
+tar xf nginx-1.12.2.tar.gz
+cd nginx-1.12.2/
+./configure --prefix=/usr/local/nginx --user=nginx --group=nginx --with-http_ssl_module
+make && make install
+cd
+cp nginx-1.12.2.tar.gz /root/rpmbuild/SOURCES/
+cd /root/rpmbuild/SPECS/
+vim  nginx.spec
+Name:nginx
+Version:1.12.2
+Release:10
+Summary:nginx is a web server
+License:GPL
+URL:www.nginx.com
+Source0:nginx-1.12.2.tar.gz
+#BuildRequires: 
+#Requires:      
+%description
+
+%prep
+%setup -q
+
+%post
+useradd -s /sbin/nologin/ nginx
+
+%build
+./configure --prefix=/usr/local/nginx --user=nginx --group=nginx --with-http_ssl_module
+make %{?_smp_mflags}
+
+%install
+make install DESTDIR=%{buildroot}
+
+%files
+%doc
+/usr/local/nginx/*
+%changelog
+
+#开始打包
+rpmbuild -ba /root/rpmbuild/SPECS/nginx.spec
+#打包后的位置
+/root/rpmbuild/RPMS/x86_64
+
+#拷贝到云服务器yum本地源
+[root@jump project]# cp nginx-1.12.2-10.x86_64.rpm /var/ftp/localrepo/
+createrepo --update  ./
+
+#批量安装nginx
+ ansible web1 -m 'yum' -a 'state=installed name=nginx'
+ ansible web1 -m 'shell' -a '/usr/local/nginx/sbin/nginx'
+ ansible web1 -m 'shell' -a 'netstat -lntup|grep 80'
+ 
+#安装Haproxy+keepalived
+ ansible proxy1 -m 'yum' -a 'state=installed name=keepalived'
+ ansible proxy1 -m 'yum' -a 'state=installed name=haproxy'
+#手动修改配置文件
+ssh 192.168.0.10
+vim /etc/keepalived/keepalived.conf
+global_defs {
+   notification_email {
+   admin@tarean.com.cn
+   }
+   notification_email_from Alexandre.Cassen@firewall.loc
+   smtp_server 127.0.0.1
+   smtp_connect_timeout 30
+   router_id haproxy1            #另外一台haproxy2
+}
+vrrp_instance VI_1 {
+    state MASTER                 #另外一台BACKUP
+    interface eth0
+    virtual_router_id 50
+    priority 100                 #另外一台50
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass 1111
+    }
+    virtual_ipaddress {
+        192.168.0.249
+    }
+}
+#修改haproxy（两台相同）
+vim /etc/haproxy/haproxy.cfg
+#最后添加 （defaults最后一行开始全部删除，添加如下）
+#---------------------------------------------------------------------
+# main frontend which proxys to the backends
+#---------------------------------------------------------------------
+frontend  webserver *:80
+    acl url_static       path_end       -i .jpg .gif .png .css .js .html
+    acl url_dynamic      path_end       .php .jsp
+
+    use_backend static          if url_static           
+	#满足名为url_static这条acl规则，则将请求转发至后端名为static的real server组中去
+    use_backend webs            if url_dynamic
+    default_backend             webs                 
+	#如果上面所有acl规则都不满足，将请求转发到static组中
+backend webs *:80
+    balance roundrobin
+    server web-0001  192.168.0.15:80 check inter 2000 rise 2 fall 5
+    server web-0002  192.168.0.16:80 check inter 2000 rise 2 fall 5
+    server web-0003  192.168.0.18:80 check inter 2000 rise 2 fall 5
+    server web-0004  192.168.0.21:80 check inter 2000 rise 2 fall 5
+backend static *:80
+   server web-0005  192.168.0.25:80 check inter 2000 rise 2 fall 5
+
+#跳板机执行
+ansible proxy1 -m 'service' -a 'state=restarted name=haproxy enabled=yes'
+ansible proxy1 -m 'service' -a 'state=restarted name=keepalived enabled=yes'
+
+
+#购买一个弹性公网IP，绑定虚拟IP
+略
+
+#web1-web4 开启php
+ansible web1 -m 'yum' -a 'state=installed name=php,php-fpm,php-mysql'
+ansible web1 -m 'service' -a 'state=started name=php-fpm enabled=yes' 
+ansible web1 -m 'shell' -a 'netstat -lntup|grep 9000'
+#找一个配置文件，修改一下部分
+vim nginx.conf
+        location / {
+            root   html;
+            index  index.php index.htm;
+        }
+
+        location ~ \.php$ {
+            root           html;
+            fastcgi_pass   127.0.0.1:9000;
+            fastcgi_index  index.php;
+        #   fastcgi_param  SCRIPT_FILENAME  /scripts$fastcgi_script_name;
+            include        fastcgi.conf;
+        }
+编写php文件
+vim phpinfo.php 
+<?php
+phpinfo();
+?>
+ ansible web2 -m copy -a 'src=/root/phpinfo.php dest=/usr/local/nginx/html/'
+ ansible web2 -m copy -a 'src=/root/nginx.conf dest=/usr/local/nginx/conf/' 
+ ansible web2 -m shell -a '/usr/local/nginx/sbin/nginx -s reload'
+ 
+ 
+测试
+http://139.159.199.156/index.html
+#只会显示web5
+
+http://139.159.199.156/phpinfo.php
+只会显示php页面
+
+===============================memcache安装部署=====================================
+192.168.0.26 memcache
+
+yum install memcached -y
+systemctl start memcached
+systemctl enable memcached
+netstat -lntup|grep 11211
+
+
+#给所有动态节点安装php-memcache模块
+ansible web2 -m yum -a 'state=installed name=php-pecl-memcache'
+
+所有动态web节点配置memcache地址
+ansible web2 -m lineinfile -a "dest=/etc/php-fpm.d/www.conf line='php_value[session.save_handler] = memcache'"
+ansible web2 -m lineinfile -a "dest=/etc/php-fpm.d/www.conf line='php_value[session.save_path] = "tcp://192.168.0.26:11211"'"
+
+ansible web2 -m service -a 'state=restarted name=php-fpm'
+
+#可以通过外网访问phpinfo.php
+http://139.159.199.156/phpinfo.php
+可以看到memcache  还有session
+
+
+======================redis安装部署======================
+192.168.0.27  28
+vim /etc/hosts
+192.168.0.27 redis-0001
+192.168.0.28 redis-0002
+
+上传redis安装包
+ansible web2 -m yum -a 'state=installed name=gcc'
+vim /root/project/haproxy
+[redis]
+redis-0001
+redis-0002
+
+#远程解压缩
+ansible redis -m unarchive -a 'src=/root/redis-4.0.8.tar.gz dest=/root/'
+#安装依赖包
+ ansible redis -m yum -a 'state=installed name=gcc'
+#安装
+ansible redis -m shell -a 'chdir=/root/redis-4.0.8  make && make install'
+ansible redis -m shell -a 'chdir=/root/redis-4.0.8   ./utils/install_server.sh '
+ansible redis -m shell -a 'netstat -lntup|grep 6379' 
+
+#web安装php依赖redis包
+ansible web2 -m yum -a 'state=installed name=php-common'
+ansible web2 -m service -a 'state=restarted name=php-fpm'
+上传php-devel-5.4.16-42.el7.x86_64.rpm 到跳板机/var/ftp/localrepo/
+createrepo --update .
+ansible web2 -m yum -a 'state=installed name=php-devel'
+#上传php-redis-2.2.4.tar.gz
+ansible web2 -m unarchive -a 'src=/root/php-redis-2.2.4.tar.gz dest=/root/'
+ansible web2 -m shell -a 'chdir=/root/phpredis-2.2.4 phpize && ./configure --with-php-config=/usr/bin/php-config && make && make install'
+ansible web2 -m lineinfile -a 'path=/etc/php.ini regexp="^; extension_dir" line="extension_dir = "/usr/lib64/php/modules/""'
+ansible web2 -m lineinfile -a 'path=/etc/php.ini insertafter="^extension_dir = " line="extension = "redis.so""' 
+ansible web2 -m service -a 'state=restarted name=php-fpm'
+ansible web2 -m shell -a 'php -m|grep -i redis'
+
+http://139.159.199.156/phpinfo.php
+可以看见redis
+
+redis主从(两台相同）)
+vim /etc/redis/6379.conf
+bind 0.0.0.0
+重启
+/etc/init.d/redis_6379 restart
+
+从库
+slaveof 192.168.0.27 6379
+
+查看info replication
+
+master查看
+info replication
+
+永久生效（从库）
+vim /etc/redis/
+slaveof 192.168.0.27 6379
+
+哨兵配置从库）
+vim /etc/sentinel.conf
+bind 0.0.0.0 
+port  26379 
+sentinel monitor  mymaster  192.168.0.27 6379  1
+daemonize yes
+
+启动redis-sentinel /etc/sentinel.conf  &
+
+
+=================================================nfs安装配置并连接nginx==============================
+192.168.0.29
+yum install nfs-utils rpcbind -y
+vim /etc/exports
+/html 192.168.0.0/24(rw)
+
+mkdir /html
+systemctl restart rpcbind
+systemctl enable rpcbind
+systemctl restart nfs
+systemctl enable nfs
+
+ansible web1 -m yum -a 'state=installed name=rpcbind'
+ansible web1 -m service -a 'state=restarted name=rpcbind'
+ansible web1 -m yum -a 'state=installed name=nfs-utils'
+ansible web1 -m service -a 'state=restarted name=nfs-utils'
+ 
+ansible web1 -m shell -a 'showmount -e 192.168.0.29'
+#全部挂在到html目录下
+ansible web1 -m shell -a 'mkdir /html'
+ansible web1 -m shell -a 'df -Th'
+#永久挂在
+ansible web1 -m shell -a 'echo "192.168.0.29:/html /html nfs defaults 0 0" >> /etc/fstab'  
+ansible web1 -m shell -a 'mount -a'
+vim nginx.conf
+        location / {
+            root   /html;
+            index  index.php index.html index.htm;
+        }
+		
+发送给所有web
+ansible web1 -m copy -a 'src=/root/nginx.conf dest=/usr/local/nginx/conf/'
+ansible web1 -m shell -a '/usr/local/nginx/sbin/nginx -s reload'
+#phpinfo重新推送一遍
+ansible web2 -m copy -a 'src=/root/phpinfo.php dest=/html'
+#web-0005写入
+ansible web1 -m shell -a 'echo "web5" > /html/index.html'
+
+#测试
+http://139.159.199.156/index.html
+http://139.159.199.156/phpinfo.php
+
+===============================SVN搭建部署=======================================
+ssh 192.168.0.30
+ yum -y install subversion
+ 创建版本库
+ mkdir /svn
+ svnadmin create /svn/project
+ 
+
+ #本地导入初始化数据
+ cd /usr/lib/systemd/system/ 
+ svn import . file:///svn/project/ -m "Init Data"
+ 
+vim /var/svn/project/conf/svnserve.conf
+anon-access = none
+//19行，匿名无任何权限
+auth-access = write
+//20行，有效账户可写
+password-db = passwd
+//27行，密码文件
+authz-db = authz
+//34行，ACL访问控制列表文件
+
+vim /var/svn/project/conf/passwd 
+[users]
+yangchao = 123456
+//用户名和密码
+
+vim /var/svn/project/conf/authz 
+[/]                                //定义ACL访问控制
+yangchao = rw  
+
+svnserve -d  -r /var/svn/project
+netstat -nutlp |grep svnserve
+
+
+nfs挂载svn
+vim /etc/exports
+/svn 192.168.0.0/24(rw,no_root_squash)
+ mkdir svn
+svn #vim /etc/fstab
+ 192.168.0.29:/svn /svn nfs defaults 0 0
+mount -a
+
+客户端配置
+cd /tmp
+svn --username yangchao --password 123456 co svn://192.168.0.30/ code
+Store password unencrypted (yes/no)? yes            //提示是否保存密码
+
+echo "test" > test.sh
+svn add test.sh
+svn ci -m "new file"
+
+==============================ceph文件存储===========================================
+4台ceph服务器#不要使用密钥  使用密码
+IP：192.168.0.31 32 34 37
+上传ceph镜像
+mkdir /var/ftp/ceph
+mount -o loop rhcs2.0-rhosp9-20161113-x86_64.iso  /var/ftp/ceph
+编写yum配置文件
+[mon]
+name=mon
+baseurl=ftp://192.168.0.250/ceph/rhceph-2.0-rhel-7-x86_64/MON
+gpgcheck=0
+enabled=1
+[osd]
+name=osd
+baseurl=ftp://192.168.0.250/ceph/rhceph-2.0-rhel-7-x86_64/OSD
+gpgcheck=0
+enabled=1
+[tools]
+name=tools
+baseurl=ftp://192.168.0.250/ceph/rhceph-2.0-rhel-7-x86_64/Tools
+gpgcheck=0
+enabled=1
+
+增加ansible主机文件
+vim /root/project/haproxy
+[ceph]
+ceph-0001
+ceph-0002
+ceph-0003
+ceph-0004
+
+添加hosts文件
+192.168.0.31 ceph-0001
+192.168.0.32 ceph-0002
+192.168.0.34 ceph-0003
+192.168.0.37 ceph-0004
+
+推行yum文件到所有主机
+ansible ceph -m copy -a 'src=/etc/yum.repos.d/ceph.repo dest=/etc/yum.repos.d/'
+检查
+ansible ceph -m shell -a 'yum repolist'
+推送hosts
+ansible ceph -m copy -a 'src=/etc/hosts dest=/etc/'
+
+登陆ceph1
+ssh-keygen -f /root/.ssh/id_rsa -N ''
+for i in ceph-0001 ceph-0002 ceph-0003 ceph-0004; do ssh-copy-id $i; done
+yum -y install ceph-deploy
+
+
+
+略  有问题---需要重新做
+
+
+========================Mysql===============================
+mysql-0001 -0004 192.168.0.60  61 63 66
+
+上传数据库安装包
+cp mysql-community-* /var/ftp/localrepo/
+cd /var/ftp/localrepo/
+createrepo --update .
+
+vim /etc/hosts
+vim /root/project/haproxy
+[mysql]
+mysql-0001
+mysql-0002
+mysql-0003
+mysql-0004
+
+ansible mysql -m shell -a 'yum clean all'
+ansible mysql -m shell -a "yum -y install mysql-comm*"
+ansible mysql -m service -a 'state=restarted name=mysqld'
+ansible mysql -m shell -a 'netstat -lntup|grep 3306'
+#数据库会自动生成密码，我们这里使用忘记密码
+
+ansible mysql -m lineinfile -a "dest=/etc/my.cnf insertafter='[mysqld]' line='skip-grant-tables'"
+ansible mysql -m service -a 'state=restarted name=mysqld'
+#修改密码
+ansible mysql -m shell -a 'mysql -e "update mysql.user set authentication_string=password(\"123qqq...A\") where user=\"root\" and host=\"localhost\";"'
+
+#注释
+ansible mysql -m lineinfile -a 'path=/etc/my.cnf regexp="skip-grant-tables" line=" "'
+#重启
+ansible mysql -m service -a 'state=restarted name=mysqld'
+#授权简单密码
+ansible mysql -m shell -a 'mysql --connect-expired-password -uroot -p123qqq...A -e "set global validate_password_policy=0; set global validate_password_length=6; alter user user() identified by \"123456\";"'
+
+ansible mysql -m shell -a 'netstat -lntup|grep 3306'
+
+#添加servier_id
+jump端编写脚本
+vim /root/mysql-slave.sh
+#!/bin/bash
+ip=$(ifconfig eth0|awk -F '[. ]'+ 'NR==2{print $6}')
+
+echo server_id=${ip} >>/etc/my.cnf
+echo log_bin=Mysql${ip}>>/etc/my.cnf
+批量执行脚本
+ansible mysql -m script -a '/root/mysql-slave.sh'
+重启服务
+ansible mysql -m service -a 'state=restarted name=mysqld'
+
+
+
+
+#授权同步主从同步用户
+ansible mysql-0001 -m shell -a 'mysql --connect-expired-password -uroot -p123456 -e "grant replication slave on *.* to repluser@\"%\" identified by \"123456\";"'
+
+编写ansible主机
+vim haproxy 
+[mysql2]
+mysql-0002
+mysql-0003
+mysql-0004
+
+#查看偏移量
+ansible mysql-0001 -m shell -a 'mysql --connect-expired-password -uroot -p123456 -e "show master status;"'
+
+#从库指定主库
+ansible mysql2 -m shell -a 'mysql --connect-expired-password -uroot -p123456 -e "change master to master_host=\"192.168.0.60\",master_user=\"repluser\",master_password=\"123456\",master_log_file=\"Mysql60.000010\",master_log_pos=701;"'
+
+ansible mysql2 -m shell -a 'mysql --connect-expired-password -uroot -p123456 -e "start slave;"'
+
+#查看
+ansible mysql2 -m shell -a 'mysql --connect-expired-password -uroot -p123456 -e "show slave status\G;"'
+
+==================================MHA=============================
+MHA 192.168.0.68
+#需要无密码访问，跳板机密钥分发给MYSQL以及MHA
+ansible mysql -m copy -a 'src=/root/.ssh/id_rsa dest=/root/.ssh/ mode=0600'
+ansible mysql -m copy -a 'src=/etc/ssh/ssh_config dest=/etc/ssh/'
+
+#MHA同上
+添加hosts  proxy主机名
+
+ansible mha -m copy -a 'src=/root/.ssh/id_rsa dest=/root/.ssh/ mode=0600'
+ansible mha -m copy -a 'src=/etc/ssh/ssh_config dest=/etc/ssh/
+
+#上传mha-soft-student包
+scp -r mha-soft-student/ root@139.9.43.240:/root/
+[mha-soft-student]# cp perl-* /var/ftp/localrepo/
+cd /var/ftp/localrepo
+createrepo --update .
+
+#安装依赖包
+ansible mha1 -m shell -a 'yum install perl* -y'
+ansible mysql -m shell -a 'yum install perl* -y'
+
+#备用主库61
+#关闭中继日志
+ansible mysql-0001,mysql-0002 -m shell -a 'mysql --connect-expired-password -uroot -p123456 -e "set global relay_log_purge=off;"'
+
+#加载半同步模块(通过脚本)
+vim mysql.sh
+#!/bin/bash
+echo plugin-load="rpl_semi_sync_master=semisync_master.so;rpl_semi_sync_slave=semisync_slave.so">>/etc/my.cnf
+echo rpl-semi-sync-master-enabled = 1 >> /etc/my.cnf
+echo rpl-semi-sync-slave-enabled = 1 >> /etc/my.cnf
+echo relay_log_purge=off >> /etc/my.cnf
+
+ansible mysql-0001,mysql-0002 -m script -a '/root/mysql.sh'
+
+#重启
+ansible mysql -m service -a 'state=restarted name=mysqld'
+ #检查
+ansible mysql-0001,mysql-0002 -m shell -a 'mysql --connect-expired-password -uroot -p123456 -e "show variables like \"rpl_semi_sync_%_enabled\";"'
+
+
+# ansible mysql-0001,mysql-0002 -m shell -a 'mysql --connect-expired-password -uroot -p123456 -e "SELECT PLUGIN_NAME, PLUGIN_STATUS FROM INFORMATION_SCHEMA.PLUGINS  WHERE PLUGIN_NAME LIKE \"%semi%\";"'
+
+
+vim /root/mysql.sh
+#!/bin/bash
+echo plugin-load=rpl_semi_sync_slave=semisync_slave.so >> /etc/my.cnf
+echo rpl-semi-sync-slave-enabled = 1 >> /etc/my.cnf
+echo relay_log_purge=off >> /etc/my.cnf
+
+
+#推送
+ansible mysql-0003,mysql-0004 -m script -a '/root/mysql.sh'
+   
+ansible mysql -m service -a 'state=restarted name=mysqld'                 
+
+#远程安装MHA
+ansible mha1 -m unarchive -a 'src=/root/mha-soft-student/mha4mysql-manager-0.56.tar.gz  dest=/root/'
+scp mha4mysql-node-0.56-0.el6.noarch.rpm root@192.168.0.68:/root/
+
+
+ssh mha1
+yum  -y install mha4mysql-node-0.56-0.el6.noarch.rpm
+cd  mha4mysql-manager-0.56
+perl Makefile.PL
+make && make install
+
+mkdir /etc/mha_manager
+cp samples/conf/app1.cnf /etc/mha_manager/
+
+vim /etc/conf/app1.cnf
+
+[server default]
+manager_workdir=/var/log/masterha/app1
+manager_log=/var/log/masterha/app1/manager.log
+
+master_ip_failover_script=/etc/mha_manager/master_ip_failover
+
+ssh_user=root
+ssh_port=22
+
+repl_user=repluser
+repl_password=123456
+
+user=admin
+password=123456
+
+[server1]
+hostname=192.168.0.60
+port=3306
+candidate_master=1
+
+[server2]
+hostname=192.168.0.61
+candidate_master=1
+
+[server3]
+hostname=192.168.0.63
+no_master=1
+[server4]
+hostname=192.168.0.66
+no_master=1
+
+
+#拷贝监控脚本
+ mha-soft-student]# scp master_ip_failover root@192.168.0.68:/root/
+vim /etc/mha_manager/master_ip_failover
+my $vip = '192.168.0.247/24';  # Virtual IP 
+chmod +x /etc/mha_manager/master_ip_failover
+
+
+#推送
+cp mha-soft-student/mha4mysql-node-0.56-0.el6.noarch.rpm /var/ftp/localrepo/
+ 
+createrepo --update .
+
+ansible mysql -m yum -a 'state=installed name=mha4mysql-node-0.56-0.el6.noarch.rpm'
+
+#授权管理用户
+ansible mysql -m shell -a 'mysql --connect-expired-password -uroot -p123456 -e "set global validate_password_policy=0; set global validate_password_length=6;"'
+
+ansible mysql-0001 -m shell -a 'mysql --connect-expired-password -uroot -p123456 -e "grant all on *.* to root@\"%\" identified by \"123456\";"'
+
+#添加同步用户
+ansible mysql-0001 -m shell -a 'mysql --connect-expired-password -uroot -p123456 -e "grant replication slave on *.* to repluser@\"%\" identified by \"123456\";"'
+
+#测试
+测试ssh无密码连接
+]# masterha_check_ssh --conf=/etc/mha_manager/app1.cnf
+
+主从复制
+]# masterha_check_repl --conf=/etc/mha_manager/app1.cnf
+MySQL Replication Health is OK.
+
+
+#配置VIP
+华为云 申请VIP 192.168.0.247
+绑定主库，备库
+
+主库配置
+ifconfig eth0:1 192.168.0.247
+
+启动mha服务
+masterha_manager --conf=/etc/mha_manager/app1.cnf --remove_dead_master_conf --ignore_last_failover &
+
+
+#测试
+停掉mysql主库  查看从库是否变更
+
+====================================my-cat读写分离============================
+scp Mycat-server-1.6-RELEASE-20161028204710-linux.tar.gz root@139.9.43.240:/root/
+
+#安装JAVA
+ansible mycat1 -m yum -a 'state=installed name=java-1.8.0-openjdk'
+ansible mycat1 -m shell -a 'java -version'
+
+#解压缩并安装
+ansible mycat1 -m unarchive -a 'src=/root/Mycat-server-1.6-RELEASE-20161028204710-linux.tar.gz dest=/root/'
+ansible mycat1 -m shell -a 'mv /root/mycat/ /usr/local/'
+
+#备份配置文件，容易改错了
+ansible mycat1 -m shell -a 'cp /usr/local/mycat/conf/server.xml /root/'
+
+ansible mycat1 -m shell -a 'cp /usr/local/mycat/conf/schema.xml /root/'
+#配置文件比较复杂  手动连接更改
+vim /usr/local/mycat/conf/schema.xml
+
+
+
+
+
+===================================my-haproxy==============================
+my-haproxy-0001  192.168.0.40
+my-haproxy-0002  192.168.0.41
+
+配置ansible主机
+[my-haproxy]
+my-haproxy-0001
+my-haproxy-0002
+
+配置hosts
+192.168.0.40 my-haproxy-0001
+192.168.0.41 my-haproxy-0002
+
+ansible my-haproxy -m 'yum' -a 'state=installed name=keepalived'
+ansible my-haproxy -m 'yum' -a 'state=installed name=haproxy'
+
+购买VIP。。。。。248
+
+绑定两台my-haproxy-0001 my-haproxy-0002
+
+
+
+

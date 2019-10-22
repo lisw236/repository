@@ -1,0 +1,431 @@
+DNS分离解析与虚拟Web主机:
+虚拟机A  虚拟机B  虚拟机C  虚拟机D
+一 构建Web服务器
+虚拟机C:
+1.安装软件包httpd
+[root@svr10 ~]# yum -y install httpd
+
+2.建立修改调用配置文件
+[root@svr10 ~]# vim /etc/httpd/conf.d/nsd01.conf
+<VirtualHost *:80>
+  ServerName www.qq.com
+  DocumentRoot /var/www/qq
+</VirtualHost>
+<VirtualHost *:80>
+  ServerName www.163.com
+  DocumentRoot /var/www/163
+</VirtualHost>
+[root@svr10 ~]# mkdir /var/www/qq /var/www/163
+[root@svr10 ~]# echo '<h1>wo shi Web1 QQ' > /var/www/qq/index.html
+[root@svr10 ~]# echo '<h1>wo shi Web1 163' > /var/www/163/index.html
+[root@svr10 ~]# systemctl restart httpd
+
+虚拟机D:
+[root@pc20 ~]# yum -y install httpd
+[root@pc20 ~]# vim /etc/httpd/conf.d/nsd01.conf
+<VirtualHost *:80>
+  ServerName www.qq.com
+  DocumentRoot /var/www/qq 
+</VirtualHost>
+<VirtualHost *:80>
+  ServerName www.163.com
+  DocumentRoot /var/www/163
+</VirtualHost>
+[root@pc20 ~]# mkdir /var/www/qq /var/www/163
+[root@pc20 ~]# echo '<h1>wi shi Web2 QQ' > /var/www/qq/index.html
+[root@pc20 ~]# echo '<h1>wi shi Web2 163' > /var/www/163/index.html
+[root@pc20 ~]# systemctl restart httpd
+
+##################################################
+单独访问测试虚拟机C与虚拟机D的Web服务
+[root@svr10 ~]# vim /etc/hosts   #测试完删除
+192.168.4.10  www.163.com  www.qq.com
+[root@svr10 ~]# firefox www.163.com
+
+#################################################
+指定四台机器的DNS服务器地址
+虚拟机A
+[root@svr7 ~]# echo nameserver 192.168.4.7 > /etc/resolv.conf 
+虚拟机B
+[root@pc207 ~]# echo nameserver 192.168.4.7 > /etc/resolv.conf 
+虚拟机C
+[root@svr10 ~]# echo nameserver 192.168.4.7 > /etc/resolv.conf 
+虚拟机D
+[root@pc20 ~]# echo nameserver 192.168.4.7 > /etc/resolv.conf 
+##################################################
+虚拟机A构建DNS分离解析:
+[root@svr7 ~]# vim /etc/named.conf 
+options {
+        directory       "/var/named";
+};
+view "nsd" {
+   match-clients {  192.168.4.7;  };
+   zone "163.com" IN {
+        type master;
+        file "163.com.zone";
+  };
+   zone "qq.com" IN {
+        type master;
+        file "qq.com.zone";
+  };
+};
+
+view "other" {
+   match-clients {  any;  };
+   zone "163.com" IN {
+        type master;
+        file "163.com.other";
+  };
+   zone "qq.com" IN {
+        type master;
+        file "qq.com.other";
+  };
+};
+
+
+建立地址库文件:
+]# cd /var/named/
+]# vim qq.com.zone 
+qq.com.    NS    svr7
+svr7       A     192.168.4.7
+www        A     192.168.4.10
+
+]# cp -p qq.com.zone 163.com.zone
+]# vim 163.com.zone 
+163.com.    NS    svr7
+svr7       A     192.168.4.7
+www        A     192.168.4.10
+
+]# vim qq.com.other 
+qq.com.    NS    svr7
+svr7       A     192.168.4.7
+www        A     192.168.4.20
+
+]# cp -p 163.com.zone 163.com.other
+]# vim 163.com.other
+163.com.   NS    svr7
+svr7       A     192.168.4.7
+www        A     192.168.4.20
+]# systemctl restart named
+
+##############################################
+部署DHCP服务器
+• Dynamic Host Configuration Protocol
+– 动态主机配置协议,由 IETF(Internet 网络工程师任
+务小组)组织制定,用来简化主机地址分配管理
+
+• 主要分配以下入网参数
+– IP地址/子网掩码/广播地址
+– 默认网关地址、DNS服务器地址
+
+DHCP概述及原理,广播进行,先到先得(一个网络中只能有一个DHCP)
+• DHCP地址分配的四次会话
+– DISCOVERY --> OFFER --> REQUEST -->ACK
+
+• 服务端基本概念
+– 租期:允许客户机租用IP地址的时间期限,单位为秒
+– 作用域:分配给客户机的IP地址所在的网段
+– 地址池:用来动态分配的IP地址的范围  
+
+虚拟机A:
+1.安装软件包
+[root@svr7 /]# yum -y install dhcp
+
+2.修改主配置文件
+[root@svr7 /]# vim /etc/dhcp/dhcpd.conf 
+ :r  /usr/share/doc/dhcp*/dhcpd.conf.example
+
+subnet 192.168.4.0 netmask 255.255.255.0 { #分配网段
+  range 192.168.4.100 192.168.4.200;   #分配IP地址范围
+  option domain-name-servers 192.168.4.7;  #DNS地址
+  option routers 192.168.4.254;    #分配的网关地址
+  default-lease-time 600;
+  max-lease-time 7200;
+} 
+3.重启服务
+[root@svr7 /]# systemctl  restart dhcpd
+
+#################################################
+网络装机服务器
+
+网络装机的优势
+• 规模化:同时装配多台主机
+• 自动化:装系统、配置各种服务
+• 远程实现:不需要光盘、U盘等物理安装介质
+
+
+什么是PXE网络
+• PXE,Pre-boot eXecution Environment
+– 预启动执行环境,在操作系统之前运行
+– 可用于远程安装
+
+• 工作模式
+– PXE client 集成在网卡的启动芯片中
+– 当计算机引导时,从网卡芯片中把PXE client调入内存
+执行,获取PXE server配置、显示菜单,根据用户选
+择将远程引导程序下载到本机运行
+
+• 需要哪些服务组件?
+– DHCP服务,分配IP地址、定位引导程序
+– TFTP服务,提供引导程序下载
+– HTTP服务,提供yum安装源
+
+• 客户机应具备的条件
+– 网卡芯片必须支持PXE协议
+– 主板支持从网卡启动
+
+###############################################
+一  配置DHCP服务器,添加网络装机的配置
+[root@svr7 /]# vim /etc/dhcp/dhcpd.conf 
+subnet 192.168.4.0 netmask 255.255.255.0 {
+  range 192.168.4.100 192.168.4.200;
+  option domain-name-servers 192.168.4.7;
+  option routers 192.168.4.254;
+  default-lease-time 600;
+  max-lease-time 7200;
+  next-server  192.168.4.7; #指定下一个服务器地址
+  filename "pxelinux.0";    #指定网卡引导文件名称
+}
+[root@svr7 /]# systemctl  restart dhcpd
+
+pxelinux.0:网卡引导文件,网络装机说明书,二进制文件
+                   安装一个软件可以产生该文件,默认名称pxelinux.0
+#################################################
+二  构建tftp服务,提供众多的引导文件与驱动程序 
+
+    tftp:简单的文件传输协议   端口默认:69
+       默认共享的路径:/var/lib/tftpboot
+
+1.安装软件包tftp-server
+[root@svr7 /]# yum -y install tftp-server
+
+2.启动tftp服务
+[root@svr7 /]# systemctl restart tftp
+
+3.部署pxelinux.0文件
+]# yum provides */pxelinux.0   #查询那个软件产生该文件
+]# yum -y install syslinux
+]# rpm -ql syslinux | grep pxelinux.0  #查询安装清单
+]# cp /usr/share/syslinux/pxelinux.0 /var/lib/tftpboot/
+
+]# ls /var/lib/tftpboot/
+
+ pxelinux.0--->读取菜单文件内容
+              /var/lib/tftpboot/pxelinux.cfg/default
+
+4.部署菜单文件
+[root@svr7 /]# ls /var/lib/tftpboot/
+[root@svr7 /]# mkdir /var/lib/tftpboot/pxelinux.cfg
+[root@svr7 /]# ls /var/lib/tftpboot/
+
+关闭虚拟机A,图形将光盘文件放入到光驱设备中
+[root@svr7 /]# poweroff 
+Connection to 192.168.4.7 closed by remote host.
+Connection to 192.168.4.7 closed.
+
+[root@svr7 ~]# mount /dev/cdrom  /mnt/
+mount: /dev/sr0 写保护，将以只读方式挂载
+[root@svr7 ~]# ls /mnt/
+
+]# cp /mnt/isolinux/isolinux.cfg           /var/lib/tftpboot/pxelinux.cfg/default
+
+]# ls -l /var/lib/tftpboot/pxelinux.cfg/default
+
+5.部署图形模块(vesamenu.c32)与背景图片(splash.png)
+]# cp /mnt/isolinux/vesamenu.c32 /mnt/isolinux/splash.png /var/lib/tftpboot/
+
+]# ls /var/lib/tftpboot/
+pxelinux.0  pxelinux.cfg  splash.png  vesamenu.c32
+
+6.部署启动内核(vmlinuz)与驱动程序(initrd.img)
+]# cp /mnt/isolinux/vmlinuz /mnt/isolinux/initrd.img /var/lib/tftpboot/
+
+[root@svr7 ~]# ls /var/lib/tftpboot/
+initrd.img  pxelinux.cfg  vesamenu.c32
+pxelinux.0  splash.png    vmlinuz
+
+7.修改菜单文件
+]# vim  /var/lib/tftpboot/pxelinux.cfg/default
+末行模式:set  nu
+1 default vesamenu.c32    #默认加载图形模块
+2 timeout 600             #默认读秒时间 1/10
+
+10 menu background splash.png       #背景图片
+11 menu title NSD1905 PXE Server !  #标题显示
+
+61 label linux
+62   menu label Install CentOS 7.5   #菜单显示的内容
+     menu  default                #读秒结束后默认选择
+63   kernel vmlinuz                  #加载启动内核
+64   append initrd=initrd.img        #加载驱动程序
+
+#################################################
+重启dhcpd服务与tftp服务
+[root@svr7 ~]# systemctl disable tftp #设置开机不自启动
+[root@svr7 ~]# reboot 
+
+[student@room9pc01 ~]$ goa
+[root@svr7 ~]# systemctl restart tftp
+[root@svr7 ~]# systemctl status tftp
+
+[root@svr7 ~]# systemctl restart dhcpd
+[root@svr7 ~]# systemctl status dhcpd
+
+#################################################
+总结:                                                               
+ 1.dhcp--->IP地址   next-server  filename
+ 2.tftp--->pxelinux.0
+ 3.pxelinux.0--->菜单文件default
+ 4.default--->图形模块  背景图片  内核  驱动程序
+
+初步测试:
+ 新建虚拟机:
+   1.选择网络引导pxe安装
+   2.内存选择2048
+   3.网络类型选择 private1
+
+###############################################
+三 构建Web服务提供众多的软件包
+虚拟机A:
+[root@svr7 ~]# yum -y install httpd
+
+[root@svr7 ~]# mkdir /var/www/html/centos
+[root@svr7 ~]# mount /dev/cdrom  /var/www/html/centos
+mount: /dev/sr0 写保护，将以只读方式挂载
+[root@svr7 ~]# systemctl restart httpd
+
+[root@svr7 ~]# firefox 192.168.4.7/centos
+
+#################################################
+四 部署无人值守安装,生成应答文件
+
+1.图形工具system-config-kickstart进行生成应答文件
+]# yum -y install system-config-kickstart 
+
+]# LANG=en  system-config-kickstart  #英文进行运行
+点击 "软件包选择(Package Selection)" 查看是否可以进行选择
+需要Yum仓库的支持:指向光盘的内容仓库,标识必须为[development]
+
+[root@svr7 ~]# vim /etc/yum.repos.d/local.repo 
+[development]
+name=CentOS-$releasever - Base
+baseurl=ftp://192.168.4.254/centos-1804
+enabled=1
+gpgcheck=0
+
+[root@svr7 ~]# LANG=en  system-config-kickstart
+ 点击 "软件包选择(Package Selection)" 查看是否可以进行选择
+
+查看生成的应答文件:
+[root@svr7 ~]# ls /root/
+[root@svr7 ~]# vim  /root/ks.cfg
+
+共享应答文件:
+[root@svr7 ~]# cp /root/ks.cfg /var/www/html/
+[root@svr7 ~]# ls /var/www/html/
+centos  ks.cfg
+
+修改菜单文件指定应答文件的位置:
+]# vim /var/lib/tftpboot/pxelinux.cfg/default 
+label linux
+menu label  Install CentOS 7.5
+menu default
+kernel vmlinuz
+append initrd=initrd.img ks=http://192.168.4.7/ks.cfg
+
+#################################################
+总结:                                                               
+ 1.dhcp--->IP地址   next-server  filename
+ 2.tftp--->pxelinux.0
+ 3.pxelinux.0--->菜单文件default
+ 4.default--->图形模块  背景图片  内核  驱动程序  ks.cfg
+ 5.ks.cfg---> ....分区  软件包选择
+               --url="http://192.168.4.7/centos"
+################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

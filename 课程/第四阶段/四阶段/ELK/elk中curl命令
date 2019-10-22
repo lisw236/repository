@@ -1,0 +1,54 @@
+#############################################################
+curl命令操作
+
+    curl -X关键字  http://IP:端口/索引[/类型/文档号] -d ' json格式'
+
+关键字:
+      GET
+      PUT
+      POST
+      DELETE
+        
+创建索引
+curl -XPUT http://es2:9200/tedu -d '
+{"settings": {
+    "index": {
+       "number_of_shards": 5,     //分片数
+       "number_of_replicas": 1    //备份数
+    }
+ }
+}'
+
+
+添加文档
+curl -XPUT http://es2:9200/tedu/teacher/1 -d '
+ {                           //tedu库下teacher表第一行              
+   "姓名":"nn",           
+   "爱好":"ss",
+   "年龄":"80"
+ }'
+
+
+查询
+- json格式输出
+curl -XGET 'http://es2:9200/tedu/teacher/1'
+
+
+修改文档
+curl -XPOST http://es2:9200/tedu/teacher/1/_update -d '
+{"doc":{"年龄":18}}'
+
+
+删除
+- 能删索引,文档,但不能删类型
+curl -XDELETE 'http://es2:9200/tedu/teacher/1'   //删行
+curl -XDELETE 'http://es2:9200/tedu'             //删索引
+curl -XDELETE http://es2:9200/*            //删除所有索引
+
+
+导入数据
+1.文件里有指定索引,类型,id
+curl -XPOST http://es3:9200/_bulk --data-binary @shakespeare.json
+2.文件里没有指定
+curl -XPOST http://es3:9200/索引/类型_bulk --data-binary @shakespeare.json
+

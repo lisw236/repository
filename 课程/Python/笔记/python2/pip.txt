@@ -1,0 +1,151 @@
+
+yum provides pip
+         5个
+
+curl https://bootstrap.pypa.io/get=pip.py -o get-pip.py
+
+python3 get-pip.py
+
+pip install pymysql
+
+#################################
+import pymysql
+
+# 建立连接
+conn = pymysql.connect(
+	........
+)
+
+# 建立游标
+cursor = conn.cursor()
+
+# 执行sql语句
+cursor.execute(sql语句)
+cursor.executemany(insert,dr)
+
+#读取
+cursor.fetchone()   			# 读一行
+cursor.fetchmany()			# 
+cursor.fetchall()			# 读取剩下所有
+
+#移动游标
+cursor.scrill(1)			# 默认从当前移动
+cursor.scroll(2, mode='absolute')	# ;absoute 总是从头开始
+
+# 对数据库有改动,需要确认
+conn.commit()
+
+# 关闭
+cursor.close()  	# 关闭游标
+conn.close()		# 关闭连接
+
+################################################################
+SQLALchemy
+  --不需要书写SQL语句
+  --不限于mysql,只要是关系型数据库
+  --使用ORM
+
+  ORM
+  --O:Object: 面向对象变成中对象
+  --R:Relationship: 关系, 关系型数据库
+  --M:
+
+一个class对应一个表
+每个属性都是表中的一个字段，是类属性
+
+
+ pip3 install sqlalchemy
+ CREATE DATABASE tarena DEFAULT CHARSET 'utf8';
+
+--------------------------------------------------------------
+创建表
+
+格式:
+
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base 
+
+
+1.创建连接到数据库的引擎
+engine = create_engine(
+    'mysql+pymysql://用户名:密码@数据库地址/库?charset=utf8',
+    encoding='utf8',
+    #echo=True                    #终端输出(跟日志格式类似)
+)
+
+
+2.创建ORM映射，生成ORM映射所需的基类
+Base = declarative_base()
+
+3.自定义映射类型
+ # 在数据库中创建表，如果库中已有同名的表，将不会创建
+
+from sqlalchemy import Column, String, Integer, ForeignKey 
+(需什么类型就导入什么类型)
+
+class 表名(Base)                  #必须
+	__tablename__ = 'employees'
+        字段名 = Column(字段的约束)
+
+class 表名(Base)                  #必须
+	__tablename__ = 'employees'
+        字段名 = Column(字段的约束)
+        .......
+
+
+	字段的约束:
+		ForeignKey('departments.dep_id')
+		primary_key=True
+
+		nullable非空约束，unique唯一性约束
+
+
+4.通过将sessionmaker与数据库引擎绑定，创建会话类Session
+from sqlalchemy.orm import sessionmaker
+
+Session = sessionmaker(bind=engine)
+  	
+-------------------------------------------------------------
+添加数据(另建文件)
+
+from 上面的文件名 import 属性, Session
+
+hr = 属性(dep_id=1, dep_name='hr')
+ .........
+des = [hr,.......]
+
+session = Session()    		#创建会话类实例
+session.add(一条数据)    	#向实例绑定的数据库添加数据
+session.add_all(多条数据)    	#向实例绑定的数据库添加数据
+session.commit()    		#将数据提交到实例对应数据库
+session.close()    		#关闭session类
+
+添加过的数据不要再添加
+
+------------------------------------------
+修改/删除 数据
+
+from 上面的文件名 import 属性, Session
+
+# 先查找数据
+session = Session()
+qset12 = session.query(Departments).filter(Departments.dep_name=='财务部')
+
+hr = qset12.one()
+
+#修改或删除数据
+hr.dep_name = '人力财务部'      # 只要把映射的实体类对象重新赋值保存即可
+session.delete(hr)		# 删除记录与修改类似，先找到记录再执行删除
+
+session.commit()
+------------------------------------------
+多表查询
+from 上面的文件名 import 属性, Session
+
+qset10 = session.query(Employee.emp_name, Department.dep_name).join(Department)
+
+for row in qset10:
+    print(row)
+
+
+

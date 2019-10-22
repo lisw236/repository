@@ -1,0 +1,87 @@
+
+
+yum   groupinstall   组名
+yum   grouplist      查看组包
+
+rpm2cpio  包名  | cpio -id     //解压rpm包
+####################################################################
+                             rpm包制作
+
+原理:   打包安装好的成果,相当于压缩, rpm包就是一个压缩包,安装rpm包,相当于解压
+
+       先在电脑上把源码安装一遍, 对安装好的结果打个包, 打包的扩展名为rpm
+
+rpmbuild目录结构
+--(都是普通的目录,可以mkdir自己建或打命令)
+--RPMS: 成果包, 会有两个,一个为rpm包,一个为源码包
+
+   BUILD  BUILDROOT  RPMS  SOURCES  SPECS  SRPMS
+
+编写配置文件时必须为: 文件名.spec 否则没有内容
+
+命令
+rpm2cpio  包名  | cpio -id     //解压rpm包
+rpmbuild -ba 随便一个文件名      //生成目录结构
+rpmbuild -ba spec文件路径       //执行制作rpm包
+
+#################################################################
+步骤:
+1.安装工具:rpm-build
+[root@web1 ~]# yum -y install  rpm-build
+2.生成目录结构
+[root@web1 ~]# rpmbuild -ba 随便一个文件名          //会报错，没有文件或目录
+[root@web1 ~]# ls /root/rpmbuild                 //自动生成的目录结构
+BUILD  BUILDROOT  RPMS  SOURCES  SPECS  SRPMS
+3.拷贝nginx源码包
+[root@web1 ~]# cp nginx-1.12.2.tar.gz /root/rpmbuild/SOURCES/
+4.编写spec文件
+[root@web1 ~]# ls /root/rpmbuild/SPECS/nginx.spec                 
+5.执行
+[root@web1 ~]# rpmbuild -ba spec文件路径
+            
+            在RPMS/xxx/下生成两个包:rpm包和源码包
+
+##################################################################
+
+配置文件解析:
+             分两大块: %description   %prep
+
+name: 和源码包一样,工具会读name的名字去找包
+GPL : 开源(可随便复制,随便修改,随便放到网上去,不能瞎写,可能负法律责任,修改后的软件必须开
+           源)
+----------------------------------------------------------------------
+Name:nginx                                     #源码包软件名称(不能瞎填)
+Version:1.12.2                                 #源码包软件的版本号(不能瞎填)
+Release:    10 或 1%{?dist}  (10|第一版)         #制作的RPM包版本号
+Summary: Nginx is a web server software.            #RPM软件的概述 
+#Group:                                     #此包属不属于哪个组包,注释不属于   
+License:GPL                                        #软件的协议
+URL:    www.test.com                                    #网址(随便写)
+Source0:nginx-1.12.2.tar.gz                        #源码包文件的全称(必须准确)
+                    
+#BuildRequires:                       #制作RPM时的依赖关系,不能解决依赖,可以不写
+#Requires:                                        #安装RPM时的依赖关系
+%description    <-----------//以上为基本信息//       #详细概述
+nginx [engine x] is an HTTP and reverse proxy server.    #软件的详细描述
+
+%post            
+useradd nginx                               #非必需操作：安装后脚本(创建账户)
+
+%prep       <------------//从这往下为源码边rpm的过程//   
+%setup -q                                #自动解压源码包，并cd进入目录
+
+%build                                      #编译安装
+./configure  (可加参数)
+make %{?_smp_mflags}
+
+%install                                     #安装
+make install DESTDIR=%{buildroot}
+
+%files                                #想对哪些文件打包
+%doc                                  
+/usr/local/nginx/*                    #对哪些文件与目录打包
+
+%changelog
+
+
+

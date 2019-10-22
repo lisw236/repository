@@ -1,0 +1,169 @@
+
+
+ping             
+一次ping是一个来回
+ -t: 不停的ping
+ -l: 定义ping包的大小(太大不支持,几万)
+
+
+关闭提示信息
+--提示为一些日志信息
+<Huawei> undo  terminal monitor    可敲 terminal ?  第一列全关
+
+
+###############################################################
+                             交换机
+
+查看
+[无论在哪] display vlan                //查看当前
+[无论在哪] display this                //查看当前
+[Huawei] dis current-configuration   //查看所有配置
+<Huawei>display  mac-address          //查看mac地址表
+
+撤销
+[Huawei-所有] undo 当时敲的命令       //撤销之前操作
+[Huawei-所有] undo vlan batch  40 to 50    //批量删除vlan
+      //提示是否要删(删的多了会提示),输入:y
+
+恢复默认配置
+[Huawei] clear configuration interface Ethernet0/0/5
+
+vlan
+创建vlan
+[Huawei] vlan 2                    //创建单个vlan
+[Huawei] vlan batch  3 4           //创建VLAN3、4
+[Huawei] vlan batch  10 to 20      //创建VLAN10到vlan20
+[Huawei] display vlan              //查看所有vlan
+[Huawei-所有] undo vlan batch  40 to 50    //批量删除vlan
+      //提示是否要删(删的多了会提示),输入:y
+
+将接口加入vlan
+//必须进入接口,通过当前所在接口指定接口
+[Huawei] interface ethernet0/0/2              //进入接口
+[Huawei-Ethernet0/0/2] port link-type access  //先敲这个,将接口设置为access模式,准备将此口加入某个vlan
+[Huawei-Ethernet0/0/2] port default vlan 2    //将此接口加入vlan2
+
+
+接口组
+--实质:批量执行同一命令,对组进行操作等同于对组里成员进行操作
+[Huawei] port-group 1                  //创建接口组1
+[Huawei-port-group-1] group-member Ethernet0/0/3  Ethernet0/0/4
+                                       //将3和4口加入组
+[Huawei-port-group-1] 在组里做其他配置操作,等同于操作组内成员
+[Huawei-port-group-1] display this
+
+trunk中继链路
+//如果接口被改动过，则需要恢复默认配置!!!
+[Huawei] clear configuration interface Ethernet0/0/5
+[Huawei-Ethernet0/0/1]port link-type trunk
+[Huawei-Ethernet0/0/1]port trunk allow-pass vlan all
+
+聚合链路
+#建出一个虚拟接口,将做聚合链路的接口加入到虚拟接口
+#若接口配置过,需恢复默认配置
+#查看成员别用"di th" ,用查看全部配置，"di th"查看的是虚拟接口的信息,显示跟普通接口一样
+[Huawei] clear configuration interface Ethernet0/0/1
+ 
+[Huawei]interface Eth-trunk 1                 //创建虚拟接口
+[Huawei- Eth-trunk1]trunkport ethernet 0/0/1  0/0/2   //将实际接口加入虚拟接口
+info: ........
+
+[Huawei- Eth-trunk1] dis current-configuration       //查看,回车下翻
+[Huawei- Eth-trunk1] (在虚拟接口你配置trunk什么的)
+
+############################################################################
+
+                             ** 路由器 **
+
+     跟交换机的命令基本一样
+
+•查看路由表
+<Huawei> display ip routing-table
+显示: 
+//destination: 目标地址
+//nexthop: 下一跳
+//32位的为自身连接的
+//direct: 直连路由,由设备接口配置好的ip,并且接口是开启状态,这样才会生成
+
+
+•配接口ip
+#进入接口
+[Huawei-GigabitEthernet0/0/0]ip address 192.168.1.254 24
+
+
+•接口里直接切换接口
+[Huawei-GigabitEthernet0/0/0]in g0/0/1         //直接切换到1口
+
+
+•静态路由
+//手工配置, 记得配置回来的路由器
+(ip route-static 目标网段 子网掩码  下一跳)    
+[Huawei]ip route-static 192.168.3.0 24 192.168.2.2
+
+(默认路由)
+//若自己不知道目标网段就往2.2扔
+[Huawei]ip route-static  0.0.0.0  0  192.168.2.2
+
+动态路由(ospf协议)
+  开启ospf 序号 协议 --> 定义区域  -->  对外宣告(反掩码)
+[Huawei] ospf 1                     //开启ospf 1
+[Huawei-ospf-1] area 0              //定义第一个区域(0为第一区域)
+[Huawei-ospf-1-area-0.0.0.0] network 192.168.1.0  反掩码      //对外宣告,网段!!!
+[Huawei-ospf-1-area-0.0.0.0] network 192.168.2.0  0.0.0.255
+                                      ................
+弹出loadingdone为交流结束
+
+[Huawei-ospf-1]default-route-advertise　        #宣告自己有默认路由
+
+acl(访问控制列表)
+
+定义规则  =>  将规则加入接口(进/出)  =>  
+
+查看
+[Huawei] display  acl 序号
+
+基本
+1.定义规则:
+[Huawei] acl 2001
+[Huawei-acl-basic-2001] rule permit source 192.168.2.1 0   //允许 源xx
+  #permit|deny:  => 允许|拒绝   
+   #0:  =>0.0.0.0(反掩码) 就匹配这个主机ip      (针对一个ip)
+   #0.0.0.255:   =>匹配到: 192.168.2.x  即为匹配  (匹配一个网段)  
+[Huawei-acl-basic-2001] rule deny source any
+2.规则放入接口:  进/出
+[Huawei-GigabitEthernet0/0/1] traffic-filter inbound acl 2000
+
+高级:
+[Huawei]acl 3000
+[Huawei-acl-adv-3000] rule deny tcp source 192.168.2.1 0 destination 192.168.1.1 0 
+destination-port eq 21      
+[Huawei-GigabitEthernet0/0/1] traffic-filter inbound acl 3000   //在接口中应用acl
+                                             \outbound\
+
+########################################################################
+三层交换机
+
+查看
+<Huawei> display  ip  interface  brief       //专门查看接口IP信息
+
+
+给in vlanif配ip
+ //前提是有这个vlan
+ //创建vlan --> vlanif配ip  --> 将接口加入vlan
+[Huawei] vlan 2
+[Huawei] interface Vlanif 2                    //vlan2 的接口 
+[Huawei-Vlanif1] ip address 192.168.1.254 24    //给虚拟接口配ip
+
+[Huawei-GigabitEthernet0/0/2] port link-type access
+[Huawei-GigabitEthernet0/0/2] port default vlan 2   //将接口加入vlan
+可查 全部配置/接口ip命令 来查看
+
+
+
+
+
+        
+
+
+
+
